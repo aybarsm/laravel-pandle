@@ -1,6 +1,6 @@
 {
   "name": "aybarsm/laravel-pandle",
-  "description": "Laravel service provider for Pandle (pandle.com) bookkeeping platform API.",
+  "description": "Highly customisable Laravel service provider package for Pandle (pandle.com) bookkeeping platform API.",
   "keywords": ["php", "laravel", "pandle", "sdk", "api", "client"],
   "license": "MIT",
   "homepage": "https://github.com/aybarsm/laravel-pandle",

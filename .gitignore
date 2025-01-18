@@ -52,3 +52,4 @@ Temporary Items
 # Dev
 *.bak*
 *.bak*/
+.cursorrules
