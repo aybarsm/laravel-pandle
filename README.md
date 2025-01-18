@@ -69,9 +69,78 @@ class YourController extends Controller
 }
 ```
 
+## Architecture & Design
+
+### Dependency Injection
+
+This package implements a clean dependency injection pattern with no circular dependencies. All concrete implementations are referenced through their corresponding interfaces (abstracts):
+
+```php
+use Aybarsm\Laravel\Pandle\Contracts\ClientContract;
+use Aybarsm\Laravel\Pandle\Contracts\HandlerContract;
+use Aybarsm\Laravel\Pandle\Contracts\CompanyContract;
+use Aybarsm\Laravel\Pandle\Contracts\AccessTokenContract;
+
+// Example of clean DI in action
+class Company implements CompanyContract
+{
+    public function __construct(
+        protected ClientContract $client
+    ) {}
+}
+```
+
+This architectural decision provides several key benefits:
+
+1. **Performance**: No circular dependencies means faster instantiation and reduced memory usage
+2. **Testability**: Easy to mock dependencies for unit testing
+3. **Maintainability**: Clear separation of concerns and dependencies
+4. **Flexibility**: Simple to replace any component without affecting others
+5. **Reliability**: Prevents complex dependency chains that can lead to runtime issues
+
 ## Customisation
 
 The concretes in this package are not extensible. However, the package is designed to be highly customisable. All core components can be replaced with your own implementations by binding them before the PandleServiceProvider registers its defaults.
+
+
+```php
+<?php
+
+declare(strict_types=1);
+
+namespace Aybarsm\Laravel\Pandle;
+
+use Aybarsm\Laravel\Pandle\Contracts\AccessTokenContract;
+use Aybarsm\Laravel\Pandle\Contracts\ClientContract;
+use Aybarsm\Laravel\Pandle\Contracts\CompanyContract;
+use Aybarsm\Laravel\Pandle\Contracts\HandlerContract;
+use Illuminate\Support\ServiceProvider;
+
+final class PandleServiceProvider extends ServiceProvider
+{
+    public function register(): void
+    {
+        $this->mergeConfigFrom(
+            __DIR__.'/../config/pandle.php',
+            'pandle'
+        );
+
+        $this->app->bindIf(AccessTokenContract::class, AccessToken::class);
+        $this->app->singletonIf(HandlerContract::class, Handler::class);
+        $this->app->bindIf(CompanyContract::class, Company::class);
+        $this->app->singletonIf(ClientContract::class, Client::class);
+    }
+
+    public function boot(): void
+    {
+        if ($this->app->runningInConsole()) {
+            $this->publishes([
+                __DIR__.'/../config/pandle.php' => config_path('pandle.php'),
+            ]);
+        }
+    }
+}
+```
 
 ### Available Contracts for Customisation
 1. **AccessTokenContract**
