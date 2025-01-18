@@ -12,19 +12,25 @@ use Illuminate\Support\Traits\Macroable;
 final class AccessToken implements Contracts\AccessTokenContract
 {
     use Macroable;
+
     protected string $accessToken;
+
     protected string $client;
+
     protected string $uid;
+
     protected float|int|string $expiry;
+
     protected static array $tokenHeaderAttributes = ['access-token', 'client', 'expiry', 'uid'];
+
     protected CarbonInterface $expires;
 
     public function __construct(array $headers)
     {
         throw_if(
-            !Arr::has($headers, self::getTokenHeaderAttributes()),
+            ! Arr::has($headers, self::getTokenHeaderAttributes()),
             Exceptions\PandleException::class,
-            '`' . Arr::join(self::getTokenHeaderAttributes(), '`, `', '`, and `') . '` headers should present to create access token instance.'
+            '`'.Arr::join(self::getTokenHeaderAttributes(), '`, `', '`, and `').'` headers should present to create access token instance.'
         );
 
         $headers = Arr::only($headers, self::getTokenHeaderAttributes());

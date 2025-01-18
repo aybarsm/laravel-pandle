@@ -13,19 +13,18 @@ use Illuminate\Contracts\Cache\Repository as CacheRepositoryContract;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response as HttpResponse;
 use Illuminate\Support\Arr;
-use Illuminate\Support\Carbon;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Fluent;
 use Illuminate\Support\Str;
-use Psr\Http\Message\ResponseInterface;
 
 final class Handler implements Contracts\HandlerContract
 {
     protected PendingRequest $request;
+
     protected ?AccessTokenContract $accessToken = null;
+
     protected array $publicPaths = [
         'POST' => ['auth', 'auth/sign_in'],
     ];
@@ -39,7 +38,7 @@ final class Handler implements Contracts\HandlerContract
         #[Config('pandle.cache.enabled', false)] protected bool $cacheEnabled,
         #[Config('pandle.cache.store', 'database')] protected string $cacheStore,
         #[Config('pandle.cache.key', 'pandle')] protected string $cacheKey,
-    ){
+    ) {
         throw_if(
             blank($this->email) || blank($this->password),
             Exceptions\PandleException::class,
@@ -47,7 +46,7 @@ final class Handler implements Contracts\HandlerContract
         );
 
         $this->baseUrl = Str::rtrim($this->baseUrl, '/');
-        $this->request = (new PendingRequest())->asJson()->acceptJson()->baseUrl($this->baseUrl);
+        $this->request = (new PendingRequest)->asJson()->acceptJson()->baseUrl($this->baseUrl);
     }
 
     public function setBaseUrl(string $baseUrl): self
@@ -57,6 +56,7 @@ final class Handler implements Contracts\HandlerContract
 
         return $this;
     }
+
     protected function getClient(): ClientContract
     {
         return App::get(ClientContract::class);
@@ -84,11 +84,12 @@ final class Handler implements Contracts\HandlerContract
 
     public function getCache(): Fluent
     {
-        if ($this->getCacheStore()->has($this->cacheKey)){
+        if ($this->getCacheStore()->has($this->cacheKey)) {
             $cache = Crypt::decrypt($this->getCacheStore()->get($this->cacheKey));
-        }else {
+        } else {
             $cache = [];
         }
+
         return fluent($cache);
     }
 
@@ -99,6 +100,7 @@ final class Handler implements Contracts\HandlerContract
         }
 
         $cache = $cache instanceof Fluent ? $cache->toArray() : $cache;
+
         return $this->getCacheStore()->forever(
             $this->cacheKey,
             Crypt::encrypt($cache)
@@ -117,13 +119,14 @@ final class Handler implements Contracts\HandlerContract
 
     public function signIn($force = false): void
     {
-        if (! $force){
-            if (!blank($this->accessToken)){
+        if (! $force) {
+            if (! blank($this->accessToken)) {
                 return;
             }
 
             if ($this->hasCache()) {
                 $this->accessToken = self::makeAccessToken($this->getCache()->toArray());
+
                 return;
             }
         }
@@ -165,19 +168,19 @@ final class Handler implements Contracts\HandlerContract
         $request = $this->getRequest();
 
         $request
-            ->when(!blank($query), fn ($req) => $req->withQueryParameters($query))
-            ->when(!blank($options), fn ($req) => $req->withOptions($options))
-            ->when(!blank($data), fn ($req) => $req->withOptions([$req->bodyFormat => $data]));
+            ->when(! blank($query), fn ($req) => $req->withQueryParameters($query))
+            ->when(! blank($options), fn ($req) => $req->withOptions($options))
+            ->when(! blank($data), fn ($req) => $req->withOptions([$req->bodyFormat => $data]));
 
         if (in_array($path, ($this->publicPaths[$method] ?? []), true)) {
             return $request;
         }
 
-        if (blank($this->accessToken)){
+        if (blank($this->accessToken)) {
             $this->signIn();
         }
 
-        if ($this->accessToken->hasExpired()){
+        if ($this->accessToken->hasExpired()) {
             $this->signIn(force: true);
         }
 
@@ -191,19 +194,18 @@ final class Handler implements Contracts\HandlerContract
         array $data = [],
         array $options = [],
         RequestReturn $returnType = RequestReturn::RenderedResponse
-    ): Fluent|HttpPromiseInterface|HttpResponse|PendingRequest
-    {
+    ): Fluent|HttpPromiseInterface|HttpResponse|PendingRequest {
         $path = Str::of($path)->trim('/ ')->trim()->lower()->value();
         $method = Str::upper($method);
 
         $request = $this->prepareHttpRequest($method, $path, $query, $data, $options)
-            ->throw(function (HttpResponse $response){
+            ->throw(function (HttpResponse $response) {
                 $message = "[{$response->getReasonPhrase()}]";
                 $errors = $response->json('errors', []);
 
-                if (!blank($errors)) {
+                if (! blank($errors)) {
                     $message .= ' Errors: ';
-                    $message .= Arr::join(Arr::map($errors, fn ($msg, $key) => ($key + 1) . ") {$msg}"), ' && ');
+                    $message .= Arr::join(Arr::map($errors, fn ($msg, $key) => ($key + 1).") {$msg}"), ' && ');
                 }
 
                 return throw new Exceptions\PandleException(
@@ -212,7 +214,7 @@ final class Handler implements Contracts\HandlerContract
                 );
             });
 
-        if ($returnType === RequestReturn::PendingRequest){
+        if ($returnType === RequestReturn::PendingRequest) {
             return $request;
         }
 
@@ -235,7 +237,7 @@ final class Handler implements Contracts\HandlerContract
             $resource['path'][] = $resourceName;
 
             if (isset($match[2])) {
-                $resourceId = (int)$match[2];
+                $resourceId = (int) $match[2];
                 $resource['id'][Str::singular($resourceName)] = $resourceId;
                 $resource['id'][$resourceName] = $resourceId;
             }
@@ -243,9 +245,9 @@ final class Handler implements Contracts\HandlerContract
 
         $resource['path'] = implode('.', $resource['path']);
 
-        if (!blank($query)){
-            $resource['raw'] .= '?' . http_build_query($query);
-            foreach($query as $key => $value){
+        if (! blank($query)) {
+            $resource['raw'] .= '?'.http_build_query($query);
+            foreach ($query as $key => $value) {
                 $resource['filter'][$key] = $value;
             }
         }
@@ -258,8 +260,8 @@ final class Handler implements Contracts\HandlerContract
         $resource = self::resolveResource($path, $query);
         $data = $response->json('data');
 
-        if (!blank($data)){
-            if (Arr::isList($data)){
+        if (! blank($data)) {
+            if (Arr::isList($data)) {
                 $data = collect($data)->map(fn ($item) => fluent($item));
             }
         }
