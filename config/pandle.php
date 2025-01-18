@@ -6,6 +6,7 @@ return [
     'email' => env('PANDLE_EMAIL'),
     'password' => env('PANDLE_PASSWORD'),
     'baseUrl' => env('PANDLE_BASE_URL', 'https://my.pandle.com/api/v1'),
+    'companyId' => env('PANDLE_COMPANY_ID'),
     'cache' => [
         'enabled' => env('PANDLE_CACHE_ENABLED', false),
         'store' => env('PANDLE_CACHE_STORE', 'database'),

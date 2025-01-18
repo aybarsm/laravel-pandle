@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Aybarsm\Laravel\Pandle;
 
+use Aybarsm\Laravel\Pandle\Contracts\AccessTokenContract;
 use Aybarsm\Laravel\Pandle\Contracts\ClientContract;
+use Aybarsm\Laravel\Pandle\Contracts\CompanyContract;
 use Aybarsm\Laravel\Pandle\Contracts\HandlerContract;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\ServiceProvider;
@@ -18,7 +20,9 @@ final class PandleServiceProvider extends ServiceProvider
             'pandle'
         );
 
+        $this->app->bindIf(AccessTokenContract::class, AccessToken::class);
         $this->app->singletonIf(HandlerContract::class, Handler::class);
+        $this->app->bindIf(CompanyContract::class, Company::class);
         $this->app->singletonIf(ClientContract::class, Client::class);
     }
 

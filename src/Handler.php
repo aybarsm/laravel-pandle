@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Aybarsm\Laravel\Pandle;
 
+use Aybarsm\Laravel\Pandle\Contracts\AccessTokenContract;
 use Aybarsm\Laravel\Pandle\Contracts\ClientContract;
+use Aybarsm\Laravel\Pandle\Enums\RequestReturn;
 use GuzzleHttp\Promise\PromiseInterface as HttpPromiseInterface;
 use Illuminate\Container\Attributes\Config;
 use Illuminate\Contracts\Cache\Repository as CacheRepositoryContract;
@@ -23,11 +25,12 @@ use Psr\Http\Message\ResponseInterface;
 final class Handler implements Contracts\HandlerContract
 {
     protected PendingRequest $request;
-    protected array $noAuthUris = [
+    protected ?AccessTokenContract $accessToken = null;
+    protected array $publicPaths = [
         'POST' => ['auth', 'auth/sign_in'],
     ];
 
-    public static array $tokenAttributes = ['access-token', 'client', 'expiry', 'uid'];
+    protected static string $resourcePattern = '/([a-z_]+)(?:\/(\d+))?/';
 
     public function __construct(
         #[Config('pandle.email')] private ?string $email,
@@ -44,7 +47,15 @@ final class Handler implements Contracts\HandlerContract
         );
 
         $this->baseUrl = Str::rtrim($this->baseUrl, '/');
-        $this->request = (new PendingRequest())->acceptJson()->baseUrl($this->baseUrl);
+        $this->request = (new PendingRequest())->asJson()->acceptJson()->baseUrl($this->baseUrl);
+    }
+
+    public function setBaseUrl(string $baseUrl): self
+    {
+        $this->baseUrl = $baseUrl;
+        $this->request->baseUrl($baseUrl);
+
+        return $this;
     }
     protected function getClient(): ClientContract
     {
@@ -54,6 +65,16 @@ final class Handler implements Contracts\HandlerContract
     public function getRequest(): PendingRequest
     {
         return $this->request;
+    }
+
+    public function getAccessToken(): ?AccessTokenContract
+    {
+        return $this->accessToken;
+    }
+
+    public static function makeAccessToken(array $headers): AccessTokenContract
+    {
+        return App::make(AccessTokenContract::class, ['headers' => $headers]);
     }
 
     protected function getCacheStore(): CacheRepositoryContract
@@ -71,7 +92,7 @@ final class Handler implements Contracts\HandlerContract
         return fluent($cache);
     }
 
-    protected function putCache(Fluent|array $cache): bool
+    public function putCache(Fluent|array $cache): bool
     {
         if (! $this->cacheEnabled) {
             return false;
@@ -89,79 +110,93 @@ final class Handler implements Contracts\HandlerContract
         return $this->getCacheStore()->forget($this->cacheKey);
     }
 
-    public function signIn(): array
+    public function hasCache(): bool
     {
+        return $this->cacheEnabled && $this->getCacheStore()->has($this->cacheKey);
+    }
+
+    public function signIn($force = false): void
+    {
+        if (! $force){
+            if (!blank($this->accessToken)){
+                return;
+            }
+
+            if ($this->hasCache()) {
+                $this->accessToken = self::makeAccessToken($this->getCache()->toArray());
+                return;
+            }
+        }
+
         $response = $this->httpRequest(
             method: 'POST',
-            url: 'auth/sign_in',
+            path: 'auth/sign_in',
             data: [
                 'email' => $this->email,
                 'password' => $this->password,
             ],
-            returnResponse: true
+            returnType: RequestReturn::ResponseInstance
         );
 
-        $token = Arr::only($response->getHeaders(), self::$tokenAttributes);
+        $this->accessToken = self::makeAccessToken($response->getHeaders());
 
         if ($this->cacheEnabled) {
-            $this->putCache($token);
+            $this->putCache($this->accessToken->toArray());
         }
-
-        return $token;
     }
 
-    public function signOut(): bool
+    public function signOut(): void
     {
         $response = $this->httpRequest(
             method: 'POST',
-            url: 'auth/sign_out',
-            returnResponse: true
+            path: 'auth/sign_out',
+            returnType: RequestReturn::ResponseInstance
         );
 
-        if ($response->getStatusCode() !== 200) {
-            return false;
-        }
+        $this->accessToken = null;
 
         if ($this->cacheEnabled) {
             $this->forgetCache();
         }
-
-        return true;
     }
 
-    protected function getToken(): array
-    {
-        if ($this->cacheEnabled && $this->getCache()->has(self::$tokenAttributes)) {
-            $cache = $this->getCache();
-            if ($cache->has('expiry') && Carbon::parse($cache->get('expiry'))->isPast()) {
-
-            }
-            return $this->getCache()->toArray();
-        }
-    }
-
-    protected function prepareHttpRequest(string $method, string $uri, array $query = [], array $data = [], array $options = []): PendingRequest
+    protected function prepareHttpRequest(string $method, string $path, array $query = [], array $data = [], array $options = []): PendingRequest
     {
         $request = $this->getRequest();
 
-        $request->withQueryParameters($query)
-            ->withOptions($options)
-            ->withOptions(['json' => $data]);
+        $request
+            ->when(!blank($query), fn ($req) => $req->withQueryParameters($query))
+            ->when(!blank($options), fn ($req) => $req->withOptions($options))
+            ->when(!blank($data), fn ($req) => $req->withOptions([$req->bodyFormat => $data]));
 
-        if (in_array($uri, ($this->noAuthUris[$method] ?? []), true)) {
+        if (in_array($path, ($this->publicPaths[$method] ?? []), true)) {
             return $request;
         }
 
-        return $request;
+        if (blank($this->accessToken)){
+            $this->signIn();
+        }
+
+        if ($this->accessToken->hasExpired()){
+            $this->signIn(force: true);
+        }
+
+        return $request->replaceHeaders($this->accessToken->asRequestHeaders());
     }
 
-    public function httpRequest(string $method, string $url, array $query = [], array $data = [], array $options = [], bool $returnResponse = false): Fluent|HttpPromiseInterface|HttpResponse
+    public function httpRequest(
+        string $method,
+        string $path,
+        array $query = [],
+        array $data = [],
+        array $options = [],
+        RequestReturn $returnType = RequestReturn::RenderedResponse
+    ): Fluent|HttpPromiseInterface|HttpResponse|PendingRequest
     {
-        $url = Str::of($url)->trim('/ ')->trim()->lower()->value();
+        $path = Str::of($path)->trim('/ ')->trim()->lower()->value();
         $method = Str::upper($method);
 
-        $request = $this->prepareHttpRequest($method, $url, $query, $data, $options);
-        $response = $request
+        $request = $this->prepareHttpRequest($method, $path, $query, $data, $options)
             ->throw(function (HttpResponse $response){
                 $message = "[{$response->getReasonPhrase()}]";
                 $errors = $response->json('errors', []);
@@ -175,14 +210,60 @@ final class Handler implements Contracts\HandlerContract
                     message: $message,
                     code: $response->getStatusCode()
                 );
-            })
-            ->send($method, $url);
+            });
 
-        return $returnResponse ? $response : $this->renderHttpResponse($response);
+        if ($returnType === RequestReturn::PendingRequest){
+            return $request;
+        }
+
+        $configuredOptions = $request->getOptions();
+        $response = $request->send($method, $path, $configuredOptions);
+
+        return $returnType === RequestReturn::ResponseInstance ? $response : $this->renderHttpResponse($path, $query, $response);
     }
 
-    protected function renderHttpResponse(HttpPromiseInterface|HttpResponse $response): Fluent
+    public static function resolveResource(string $path, array $query): array
     {
-        return fluent($response->json());
+        preg_match_all(self::$resourcePattern, $path, $matches, PREG_SET_ORDER);
+        $resource = [
+            'raw' => $path,
+            'path' => [],
+        ];
+
+        foreach ($matches as $match) {
+            $resourceName = $match[1];
+            $resource['path'][] = $resourceName;
+
+            if (isset($match[2])) {
+                $resourceId = (int)$match[2];
+                $resource['id'][Str::singular($resourceName)] = $resourceId;
+                $resource['id'][$resourceName] = $resourceId;
+            }
+        }
+
+        $resource['path'] = implode('.', $resource['path']);
+
+        if (!blank($query)){
+            $resource['raw'] .= '?' . http_build_query($query);
+            foreach($query as $key => $value){
+                $resource['filter'][$key] = $value;
+            }
+        }
+
+        return $resource;
+    }
+
+    protected function renderHttpResponse(string $path, array $query, HttpPromiseInterface|HttpResponse $response): Fluent
+    {
+        $resource = self::resolveResource($path, $query);
+        $data = $response->json('data');
+
+        if (!blank($data)){
+            if (Arr::isList($data)){
+                $data = collect($data)->map(fn ($item) => fluent($item));
+            }
+        }
+
+        return fluent(['resource' => $resource, 'data' => $data]);
     }
 }
