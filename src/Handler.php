@@ -21,13 +21,7 @@ use Illuminate\Support\Str;
 
 final class Handler implements Contracts\HandlerContract
 {
-    protected PendingRequest $request;
-
     protected ?AccessTokenContract $accessToken = null;
-
-    protected array $publicPaths = [
-        'POST' => ['auth', 'auth/sign_in'],
-    ];
 
     protected static string $resourcePattern = '/([a-z_]+)(?:\/(\d+))?/';
 
@@ -45,26 +39,38 @@ final class Handler implements Contracts\HandlerContract
             'E-mail or password cannot be empty.'
         );
 
-        $this->baseUrl = Str::rtrim($this->baseUrl, '/');
-        $this->request = (new PendingRequest)->asJson()->acceptJson()->baseUrl($this->baseUrl);
+        $this->setBaseUrl($this->baseUrl);
     }
 
     public function setBaseUrl(string $baseUrl): self
     {
-        $this->baseUrl = $baseUrl;
-        $this->request->baseUrl($baseUrl);
+        $this->baseUrl = Str::rtrim($baseUrl, '/');
 
         return $this;
+    }
+
+    public function makePendingRequest(): PendingRequest
+    {
+        return (new PendingRequest)->asJson()->acceptJson()->baseUrl($this->baseUrl)
+            ->throw(function (HttpResponse $response) {
+                $message = "[{$response->getReasonPhrase()}]";
+                $errors = $response->json('errors', []);
+
+                if (! blank($errors)) {
+                    $message .= ' Errors: ';
+                    $message .= Arr::join(Arr::map($errors, fn ($msg, $key) => ($key + 1).") {$msg}"), ' && ');
+                }
+
+                return throw new Exceptions\PandleException(
+                    message: $message,
+                    code: $response->getStatusCode()
+                );
+            });
     }
 
     protected function getClient(): ClientContract
     {
         return App::get(ClientContract::class);
-    }
-
-    public function getRequest(): PendingRequest
-    {
-        return $this->request;
     }
 
     public function getAccessToken(): ?AccessTokenContract
@@ -127,15 +133,12 @@ final class Handler implements Contracts\HandlerContract
             return;
         }
 
-        $response = $this->httpRequest(
-            method: 'POST',
-            path: 'auth/sign_in',
-            data: [
-                'email' => $this->email,
-                'password' => $this->password,
-            ],
-            returnType: RequestReturn::ResponseInstance
-        );
+        $request = $this->makePendingRequest();
+        $data = [
+            'email' => $this->email,
+            'password' => $this->password,
+        ];
+        $response = $request->post('auth/sign_in', $data);
 
         $this->accessToken = self::makeAccessToken($response->getHeaders());
 
@@ -146,7 +149,7 @@ final class Handler implements Contracts\HandlerContract
 
     public function signOut(): void
     {
-        $response = $this->httpRequest(
+        $this->httpRequest(
             method: 'POST',
             path: 'auth/sign_out',
             returnType: RequestReturn::ResponseInstance
@@ -157,30 +160,6 @@ final class Handler implements Contracts\HandlerContract
         if ($this->cacheEnabled) {
             $this->forgetCache();
         }
-    }
-
-    protected function prepareHttpRequest(string $method, string $path, array $query = [], array $data = [], array $options = []): PendingRequest
-    {
-        $request = $this->getRequest();
-
-        $request
-            ->when(! blank($query), fn ($req) => $req->withQueryParameters($query))
-            ->when(! blank($options), fn ($req) => $req->withOptions($options))
-            ->when(! blank($data), fn ($req) => $req->withOptions([$req->getBodyFormat() => $data]));
-
-        if (in_array($path, ($this->publicPaths[$method] ?? []), true)) {
-            return $request;
-        }
-
-        if (blank($this->getAccessToken())) {
-            $this->signIn();
-        }
-
-        if ($this->getAccessToken()->hasExpired()) {
-            $this->signIn(force: true);
-        }
-
-        return $request->replaceHeaders($this->getAccessToken()->asRequestHeaders());
     }
 
     public function httpRequest(
@@ -194,21 +173,20 @@ final class Handler implements Contracts\HandlerContract
         $path = Str::of($path)->trim('/ ')->trim()->lower()->value();
         $method = Str::upper($method);
 
-        $request = $this->prepareHttpRequest($method, $path, $query, $data, $options)
-            ->throw(function (HttpResponse $response) {
-                $message = "[{$response->getReasonPhrase()}]";
-                $errors = $response->json('errors', []);
+        $request = $this->makePendingRequest()
+            ->when(! blank($query), fn ($req) => $req->withQueryParameters($query))
+            ->when(! blank($options), fn ($req) => $req->withOptions($options))
+            ->when(! blank($data), fn ($req) => $req->withOptions([$req->getBodyFormat() => $data]));
 
-                if (! blank($errors)) {
-                    $message .= ' Errors: ';
-                    $message .= Arr::join(Arr::map($errors, fn ($msg, $key) => ($key + 1).") {$msg}"), ' && ');
-                }
+        if (blank($this->getAccessToken())) {
+            $this->signIn();
+        }
 
-                return throw new Exceptions\PandleException(
-                    message: $message,
-                    code: $response->getStatusCode()
-                );
-            });
+        if ($this->getAccessToken()->hasExpired()) {
+            $this->signIn(force: true);
+        }
+
+        $request->replaceHeaders($this->getAccessToken()->asRequestHeaders());
 
         if ($returnType === RequestReturn::PendingRequest) {
             return $request;
