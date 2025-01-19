@@ -8,6 +8,7 @@ use Aybarsm\Laravel\Pandle\Contracts\AccessTokenContract;
 use Aybarsm\Laravel\Pandle\Contracts\ClientContract;
 use Aybarsm\Laravel\Pandle\Contracts\CompanyContract;
 use Aybarsm\Laravel\Pandle\Contracts\HandlerContract;
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\ServiceProvider;
 
 final class PandleServiceProvider extends ServiceProvider
@@ -32,5 +33,9 @@ final class PandleServiceProvider extends ServiceProvider
                 __DIR__.'/../config/pandle.php' => config_path('pandle.php'),
             ]);
         }
+
+        PendingRequest::macro('getBodyFormat', function () {
+            return $this->bodyFormat;
+        });
     }
 }

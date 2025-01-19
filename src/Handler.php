@@ -170,7 +170,7 @@ final class Handler implements Contracts\HandlerContract
         $request
             ->when(! blank($query), fn ($req) => $req->withQueryParameters($query))
             ->when(! blank($options), fn ($req) => $req->withOptions($options))
-            ->when(! blank($data), fn ($req) => $req->withOptions([$req->bodyFormat => $data]));
+            ->when(! blank($data), fn ($req) => $req->withOptions([$req->getBodyFormat() => $data]));
 
         if (in_array($path, ($this->publicPaths[$method] ?? []), true)) {
             return $request;

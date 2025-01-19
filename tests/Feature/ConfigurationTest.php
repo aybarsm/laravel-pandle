@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-use Illuminate\Config\Repository;
 use Aybarsm\Laravel\Pandle\Contracts\HandlerContract;
-use Aybarsm\Laravel\Pandle\Handler;
 use Aybarsm\Laravel\Pandle\Exceptions\PandleException;
+use Aybarsm\Laravel\Pandle\Handler;
+use Illuminate\Config\Repository;
 
 it('pandle configuration requires email and password', function () {
     $app = app();
@@ -17,7 +17,7 @@ it('pandle configuration requires email and password', function () {
         'pandle' => [
             'email' => '',
             'password' => 'test-password',
-        ]
+        ],
     ]));
 
     expect(fn () => $app->get(HandlerContract::class))
@@ -28,7 +28,7 @@ it('pandle configuration requires email and password', function () {
         'pandle' => [
             'email' => 'test@example.com',
             'password' => '',
-        ]
+        ],
     ]));
 
     expect(fn () => $app->get(HandlerContract::class))
@@ -39,7 +39,7 @@ it('pandle configuration requires email and password', function () {
         'pandle' => [
             'email' => '',
             'password' => '',
-        ]
+        ],
     ]));
 
     expect(fn () => $app->get(HandlerContract::class))
@@ -50,7 +50,7 @@ it('pandle configuration requires email and password', function () {
         'pandle' => [
             'email' => 'test@example.com',
             'password' => 'test-password',
-        ]
+        ],
     ]));
 
     expect(fn () => $app->get(HandlerContract::class))->not->toThrow(PandleException::class);
