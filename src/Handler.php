@@ -69,6 +69,10 @@ final class Handler implements Contracts\HandlerContract
 
     public function getAccessToken(): ?AccessTokenContract
     {
+        if (! isset($this->accessToken) && $this->hasCache()) {
+            $this->accessToken = self::makeAccessToken($this->getCache()->toArray());
+        }
+
         return $this->accessToken;
     }
 
@@ -119,16 +123,8 @@ final class Handler implements Contracts\HandlerContract
 
     public function signIn($force = false): void
     {
-        if (! $force) {
-            if (! blank($this->accessToken)) {
-                return;
-            }
-
-            if ($this->hasCache()) {
-                $this->accessToken = self::makeAccessToken($this->getCache()->toArray());
-
-                return;
-            }
+        if (! $force && ! blank($this->getAccessToken())) {
+            return;
         }
 
         $response = $this->httpRequest(
@@ -144,7 +140,7 @@ final class Handler implements Contracts\HandlerContract
         $this->accessToken = self::makeAccessToken($response->getHeaders());
 
         if ($this->cacheEnabled) {
-            $this->putCache($this->accessToken->toArray());
+            $this->putCache($this->getAccessToken()->toArray());
         }
     }
 
@@ -176,15 +172,15 @@ final class Handler implements Contracts\HandlerContract
             return $request;
         }
 
-        if (blank($this->accessToken)) {
+        if (blank($this->getAccessToken())) {
             $this->signIn();
         }
 
-        if ($this->accessToken->hasExpired()) {
+        if ($this->getAccessToken()->hasExpired()) {
             $this->signIn(force: true);
         }
 
-        return $request->replaceHeaders($this->accessToken->asRequestHeaders());
+        return $request->replaceHeaders($this->getAccessToken()->asRequestHeaders());
     }
 
     public function httpRequest(
